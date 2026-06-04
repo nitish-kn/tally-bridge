@@ -63,7 +63,7 @@ app.get("/", (req, res) => {
 });
 
 // ─── Start Server ───────────────────────────────────────────
-const PORT = 5001;
+const PORT = 5555;
 app.listen(PORT, () => {
   console.log(`Tally bridge running on port ${PORT}`);
 });
