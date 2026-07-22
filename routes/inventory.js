@@ -15,6 +15,7 @@ router.get("/units", async (req, res) => {
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
         <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
           <ACCOUNTTYPE>Units</ACCOUNTTYPE>
         </STATICVARIABLES>
       </REQUESTDESC>
@@ -97,6 +98,7 @@ router.get("/stock-items", async (req, res) => {
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
         <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
           <ACCOUNTTYPE>Stock Items</ACCOUNTTYPE>
         </STATICVARIABLES>
       </REQUESTDESC>

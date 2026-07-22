@@ -12,7 +12,10 @@ router.get("/currencies", async (req, res) => {
     <EXPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
-        <STATICVARIABLES><ACCOUNTTYPE>Currencies</ACCOUNTTYPE></STATICVARIABLES>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <ACCOUNTTYPE>Currencies</ACCOUNTTYPE>
+        </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
   </BODY>
@@ -82,7 +85,10 @@ router.get("/voucher-types", async (req, res) => {
     <EXPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
-        <STATICVARIABLES><ACCOUNTTYPE>Voucher Types</ACCOUNTTYPE></STATICVARIABLES>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <ACCOUNTTYPE>Voucher Types</ACCOUNTTYPE>
+        </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
   </BODY>

@@ -9,14 +9,12 @@ router.post("/report", async (req, res) => {
         return res.status(400).json({ error: "reportName is required" });
     }
 
-    let staticVariablesXml = "";
-    if (fromDate && toDate) {
-        staticVariablesXml = `
+    const staticVariablesXml = `
         <STATICVARIABLES>
-          <SVFROMDATE>${fromDate}</SVFROMDATE>
-          <SVTODATE>${toDate}</SVTODATE>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          ${fromDate ? `<SVFROMDATE>${fromDate}</SVFROMDATE>` : ''}
+          ${toDate ? `<SVTODATE>${toDate}</SVTODATE>` : ''}
         </STATICVARIABLES>`;
-    }
 
     const xml = `
 <ENVELOPE>

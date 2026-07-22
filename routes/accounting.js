@@ -14,6 +14,9 @@ router.get("/groups", async (req, res) => {
     <EXPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
   </BODY>
@@ -96,6 +99,9 @@ router.get("/ledgers", async (req, res) => {
     <EXPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>List of Accounts</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
   </BODY>

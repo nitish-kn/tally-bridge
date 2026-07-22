@@ -11,7 +11,11 @@ async function fetchReport(reportName, from, to) {
     <EXPORTDATA>
       <REQUESTDESC>
         <REPORTNAME>${reportName}</REPORTNAME>
-        ${from && to ? `<STATICVARIABLES><SVFROMDATE>${from}</SVFROMDATE><SVTODATE>${to}</SVTODATE></STATICVARIABLES>` : ''}
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          ${from ? `<SVFROMDATE>${from}</SVFROMDATE>` : ''}
+          ${to ? `<SVTODATE>${to}</SVTODATE>` : ''}
+        </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
   </BODY>
@@ -83,10 +87,77 @@ router.get("/reports/cash-flow", async (req, res) => {
 
 // ─── GET /reports/stock-summary ─────────────────────────────
 router.get("/reports/stock-summary", async (req, res) => {
+    const from = req.query.from || "20260401";
+    const to = req.query.to || "20260722";
+    
+    // Custom XML to force Item-wise explosion of Stock Summary
+    const xml = `
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Stock Summary</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <ISITEMWISE>Yes</ISITEMWISE>
+          <DSPShowAllLevels>Yes</DSPShowAllLevels>
+          <SVFROMDATE>${from}</SVFROMDATE>
+          <SVTODATE>${to}</SVTODATE>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+
     try {
-        const data = await fetchReport("Stock Summary", req.query.from, req.query.to);
-        const body = data?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA || data?.ENVELOPE?.BODY || {};
-        res.json({ report: "Stock Summary", data: body });
+        const data = await sendToTally(xml);
+        console.log("DEBUG STOCK SUMMARY DATA:", JSON.stringify(data).slice(0, 1000));
+        const envelope = data?.ENVELOPE || {};
+        
+        let names = envelope.DSPACCNAME || [];
+        if (!Array.isArray(names)) names = [names];
+        
+        let info = envelope.DSPSTKINFO || [];
+        if (!Array.isArray(info)) info = [info];
+        
+        const summary = [];
+        const length = Math.max(names.length, info.length);
+        
+        for (let i = 0; i < length; i++) {
+            const nameObj = names[i];
+            const infoObj = info[i];
+            
+            const name = nameObj?.DSPDISPNAME || nameObj || null;
+            if (!name) continue;
+            
+            const stockCl = infoObj?.DSPSTKCL || {};
+            const quantity = stockCl.DSPCLQTY || null;
+            const rate = stockCl.DSPCLRATE || null;
+            const value = stockCl.DSPCLAMTA || stockCl.DSPCLVAL || null;
+            
+            // Clean value to represent absolute value as shown in Tally UI
+            let cleanValue = value;
+            if (value && !isNaN(Number(value))) {
+                cleanValue = Math.abs(Number(value)).toString();
+            }
+            
+            summary.push({
+                name: String(name).trim(),
+                quantity: quantity ? String(quantity).trim() : null,
+                rate: rate ? String(rate).trim() : null,
+                value: cleanValue ? String(cleanValue).trim() : null
+            });
+        }
+        
+        res.json({
+            report: "Stock Summary",
+            from,
+            to,
+            count: summary.length,
+            items: summary,
+            raw: envelope
+        });
     } catch (err) {
         console.error("STOCK SUMMARY ERROR:", err);
         res.status(500).json({ error: err.message });
@@ -157,6 +228,7 @@ router.get("/reports/ledger/:name", async (req, res) => {
       <REQUESTDESC>
         <REPORTNAME>Ledger Vouchers</REPORTNAME>
         <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
           <SVFROMDATE>${from}</SVFROMDATE>
           <SVTODATE>${to}</SVTODATE>
           <LEDGERNAME>${ledgerName}</LEDGERNAME>
