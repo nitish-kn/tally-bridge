@@ -89,7 +89,7 @@ router.get("/reports/cash-flow", async (req, res) => {
 router.get("/reports/stock-summary", async (req, res) => {
     const from = req.query.from || "20260401";
     const to = req.query.to || "20260722";
-    
+
     // Custom XML to force Item-wise explosion of Stock Summary
     const xml = `
 <ENVELOPE>
@@ -111,37 +111,97 @@ router.get("/reports/stock-summary", async (req, res) => {
 </ENVELOPE>`;
 
     try {
-        const data = await sendToTally(xml);
-        console.log("DEBUG STOCK SUMMARY DATA:", JSON.stringify(data).slice(0, 1000));
+        const companyXml = `
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>List of Accounts</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <ACCOUNTTYPE>Companies</ACCOUNTTYPE>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+
+        const [data, companyData] = await Promise.all([
+            sendToTally(xml),
+            sendToTally(companyXml).catch(err => {
+                console.error("Error fetching company name:", err.message);
+                return null;
+            })
+        ]);
+
+        console.log("DEBUG COMPANY DATA:", JSON.stringify(companyData));
+
+        let companyName = "Unknown Company";
+        if (companyData) {
+            const body = companyData?.ENVELOPE?.BODY || {};
+            // Direct extraction from Tally's echoed static variables
+            companyName = body?.IMPORTDATA?.REQUESTDESC?.STATICVARIABLES?.SVCURRENTCOMPANY;
+            
+            // Fallback to checking the active company list details
+            if (!companyName || typeof companyName !== "string") {
+                const requestData = body?.IMPORTDATA?.REQUESTDATA || {};
+                let messages = requestData.TALLYMESSAGE || [];
+                if (!Array.isArray(messages)) messages = [messages];
+                
+                for (const msg of messages) {
+                    if (msg.COMPANY) {
+                        const list = msg.COMPANY["REMOTECMPINFO.LIST"];
+                        const compList = Array.isArray(list) ? list : [list];
+                        for (const item of compList) {
+                            const name = item?.REMOTECMPNAME || item?.NAME;
+                            if (name && typeof name === "string") {
+                                companyName = name;
+                                break;
+                            }
+                        }
+                    }
+                    if (companyName && typeof companyName === "string") break;
+                }
+            }
+
+            if (typeof companyName === "object" || !companyName) {
+                companyName = "Unknown Company";
+            } else {
+                companyName = String(companyName).trim();
+            }
+        }
+
+        // console.log("DEBUG STOCK SUMMARY DATA:", JSON.stringify(data).slice(0, 1000));
         const envelope = data?.ENVELOPE || {};
-        
+
         let names = envelope.DSPACCNAME || [];
         if (!Array.isArray(names)) names = [names];
-        
+
         let info = envelope.DSPSTKINFO || [];
         if (!Array.isArray(info)) info = [info];
-        
+
         const summary = [];
         const length = Math.max(names.length, info.length);
-        
+
         for (let i = 0; i < length; i++) {
             const nameObj = names[i];
             const infoObj = info[i];
-            
+
             const name = nameObj?.DSPDISPNAME || nameObj || null;
             if (!name) continue;
-            
+
             const stockCl = infoObj?.DSPSTKCL || {};
             const quantity = stockCl.DSPCLQTY || null;
             const rate = stockCl.DSPCLRATE || null;
             const value = stockCl.DSPCLAMTA || stockCl.DSPCLVAL || null;
-            
+
             // Clean value to represent absolute value as shown in Tally UI
             let cleanValue = value;
             if (value && !isNaN(Number(value))) {
                 cleanValue = Math.abs(Number(value)).toString();
             }
-            
+
             summary.push({
                 name: String(name).trim(),
                 quantity: quantity ? String(quantity).trim() : null,
@@ -149,9 +209,10 @@ router.get("/reports/stock-summary", async (req, res) => {
                 value: cleanValue ? String(cleanValue).trim() : null
             });
         }
-        
+
         res.json({
             report: "Stock Summary",
+            company: companyName,
             from,
             to,
             count: summary.length,

@@ -11,8 +11,10 @@ router.get("/company", async (req, res) => {
   <BODY>
     <EXPORTDATA>
       <REQUESTDESC>
+        <REPORTNAME>List of Accounts</REPORTNAME>
         <STATICVARIABLES>
-          <SVCURRENTCOMPANY/>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <ACCOUNTTYPE>Companies</ACCOUNTTYPE>
         </STATICVARIABLES>
       </REQUESTDESC>
     </EXPORTDATA>
@@ -20,8 +22,37 @@ router.get("/company", async (req, res) => {
 </ENVELOPE>`;
   try {
     const data = await sendToTally(xml);
-    const company = data?.ENVELOPE?.BODY?.DATA?.COMPANY || data?.ENVELOPE?.BODY || {};
-    res.json({ company });
+    const body = data?.ENVELOPE?.BODY || {};
+    let companyName = body?.IMPORTDATA?.REQUESTDESC?.STATICVARIABLES?.SVCURRENTCOMPANY;
+    
+    if (!companyName || typeof companyName !== "string") {
+        const requestData = body?.IMPORTDATA?.REQUESTDATA || {};
+        let messages = requestData.TALLYMESSAGE || [];
+        if (!Array.isArray(messages)) messages = [messages];
+        
+        for (const msg of messages) {
+            if (msg.COMPANY) {
+                const list = msg.COMPANY["REMOTECMPINFO.LIST"];
+                const compList = Array.isArray(list) ? list : [list];
+                for (const item of compList) {
+                    const name = item?.REMOTECMPNAME || item?.NAME;
+                    if (name && typeof name === "string") {
+                        companyName = name;
+                        break;
+                    }
+                }
+            }
+            if (companyName && typeof companyName === "string") break;
+        }
+    }
+
+    if (typeof companyName === "object" || !companyName) {
+        companyName = "Unknown Company";
+    } else {
+        companyName = String(companyName).trim();
+    }
+
+    res.json({ company: companyName });
   } catch (err) {
     console.error("COMPANY INFO ERROR:", err);
     res.status(500).json({ error: err.message });

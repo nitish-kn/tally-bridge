@@ -70,6 +70,7 @@ function sendToTally(xml) {
           ignoreAttrs: false
         });
 
+
         try {
           const result = await parser.parseStringPromise(data);
           resolve(result);

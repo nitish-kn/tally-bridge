@@ -63,7 +63,10 @@ app.get("/", (req, res) => {
 });
 
 // ─── Start Server ───────────────────────────────────────────
+const { startStockScheduler } = require("./helpers/stockScheduler");
+
 const PORT = 5555;
 app.listen(PORT, () => {
   console.log(`Tally bridge running on port ${PORT}`);
+  startStockScheduler();
 });
