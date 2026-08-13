@@ -2,9 +2,18 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
 const { sendToTally } = require("../tallyClient");
+const { getActiveCompany } = require("./tallyHelper");
 
 const STATE_FILE = path.join(__dirname, "stockState.json");
 const WEBHOOK_URL = "http://localhost:8000/webhook/stock-summary";
+const TARGET_COMPANY = process.env.TARGET_COMPANY || "SCMPL NARELA  - (from 1-Apr-25)";
+
+function isTargetCompany(activeCompany) {
+  if (!activeCompany) return false;
+  if (activeCompany === TARGET_COMPANY) return true;
+  const normalize = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  return normalize(activeCompany) === normalize(TARGET_COMPANY);
+}
 
 // Timezone check: 8:00 AM to 10:00 PM IST (inclusive)
 function isISTWorkingHours() {
@@ -60,8 +69,21 @@ async function fetchAndSyncStock() {
     return;
   }
 
+  let activeCompany = null;
+  try {
+    activeCompany = await getActiveCompany();
+  } catch (err) {
+    console.error(`[Stock Scheduler] Could not determine active company from Tally:`, err.message);
+    return;
+  }
+
+  if (!isTargetCompany(activeCompany)) {
+    console.log(`[Stock Scheduler] Active company is "${activeCompany}". Target company is "${TARGET_COMPANY}". Skipping sync.`);
+    return;
+  }
+
   const { from, to } = getFinYearDateRange();
-  console.log(`[Stock Scheduler] Starting sync for period: ${from} to ${to}...`);
+  console.log(`[Stock Scheduler] Active company verified: "${activeCompany}". Starting sync for period: ${from} to ${to}...`);
 
   const xml = `
 <ENVELOPE>

@@ -1,57 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
-const { parseTallyImportResponse } = require("../helpers/tallyHelper");
+const { parseTallyImportResponse, getActiveCompany } = require("../helpers/tallyHelper");
 
 // ─── GET /company ───────────────────────────────────────────
 router.get("/company", async (req, res) => {
-  const xml = `
-<ENVELOPE>
-  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
-  <BODY>
-    <EXPORTDATA>
-      <REQUESTDESC>
-        <REPORTNAME>List of Accounts</REPORTNAME>
-        <STATICVARIABLES>
-          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-          <ACCOUNTTYPE>Companies</ACCOUNTTYPE>
-        </STATICVARIABLES>
-      </REQUESTDESC>
-    </EXPORTDATA>
-  </BODY>
-</ENVELOPE>`;
   try {
-    const data = await sendToTally(xml);
-    const body = data?.ENVELOPE?.BODY || {};
-    let companyName = body?.IMPORTDATA?.REQUESTDESC?.STATICVARIABLES?.SVCURRENTCOMPANY;
-    
-    if (!companyName || typeof companyName !== "string") {
-        const requestData = body?.IMPORTDATA?.REQUESTDATA || {};
-        let messages = requestData.TALLYMESSAGE || [];
-        if (!Array.isArray(messages)) messages = [messages];
-        
-        for (const msg of messages) {
-            if (msg.COMPANY) {
-                const list = msg.COMPANY["REMOTECMPINFO.LIST"];
-                const compList = Array.isArray(list) ? list : [list];
-                for (const item of compList) {
-                    const name = item?.REMOTECMPNAME || item?.NAME;
-                    if (name && typeof name === "string") {
-                        companyName = name;
-                        break;
-                    }
-                }
-            }
-            if (companyName && typeof companyName === "string") break;
-        }
-    }
-
-    if (typeof companyName === "object" || !companyName) {
-        companyName = "Unknown Company";
-    } else {
-        companyName = String(companyName).trim();
-    }
-
+    const companyName = await getActiveCompany();
     res.json({ company: companyName });
   } catch (err) {
     console.error("COMPANY INFO ERROR:", err);

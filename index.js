@@ -1,7 +1,9 @@
 const express = require("express");
+const { basicAuth } = require("./middleware/auth");
 
 const app = express();
 app.use(express.json());
+app.use(basicAuth);
 
 // ─── Route Modules ──────────────────────────────────────────
 // P1 — Core Masters (CRUD)
