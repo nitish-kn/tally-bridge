@@ -69,5 +69,37 @@ async function getActiveCompany() {
     return companyName;
 }
 
-module.exports = { parseTallyImportResponse, getActiveCompany };
+// Helper: calculate the current Indian Financial Year (from April 1st to March 31st)
+function getDefaultFinYearRange() {
+    const today = new Date();
+    // Using Asia/Kolkata time zone for consistent Indian Financial Year calculation
+    const options = { timeZone: "Asia/Kolkata", year: "numeric", month: "numeric" };
+    const formatter = new Intl.DateTimeFormat("en-US", options);
+    const parts = formatter.formatToParts(today);
+
+    let yearStr = "";
+    let monthStr = "";
+    for (const part of parts) {
+        if (part.type === "year") yearStr = part.value;
+        if (part.type === "month") monthStr = part.value;
+    }
+
+    const currentYear = parseInt(yearStr, 10);
+    const currentMonth = parseInt(monthStr, 10); // 1-indexed (1-12)
+
+    let startYear;
+    if (currentMonth >= 4) { // April (4) to December (12)
+        startYear = currentYear;
+    } else { // January (1) to March (3)
+        startYear = currentYear - 1;
+    }
+
+    const endYear = startYear + 1;
+    const fromDate = `${startYear}0401`;
+    const toDate = `${endYear}0331`;
+
+    return { from: fromDate, to: toDate };
+}
+
+module.exports = { parseTallyImportResponse, getActiveCompany, getDefaultFinYearRange };
 

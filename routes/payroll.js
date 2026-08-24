@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
-const { parseTallyImportResponse } = require("../helpers/tallyHelper");
+const { parseTallyImportResponse, getDefaultFinYearRange } = require("../helpers/tallyHelper");
 
 // ─── GET /employees ─────────────────────────────────────────
 router.get("/employees", async (req, res) => {
@@ -141,8 +141,9 @@ router.post("/pay-heads", async (req, res) => {
 
 // ─── GET /attendance ────────────────────────────────────────
 router.get("/attendance", async (req, res) => {
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>

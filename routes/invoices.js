@@ -1,12 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
-const { parseTallyImportResponse } = require("../helpers/tallyHelper");
+const { parseTallyImportResponse, getDefaultFinYearRange } = require("../helpers/tallyHelper");
 
 // ─── GET /invoices ──────────────────────────────────────────
 router.get("/invoices", async (req, res) => {
-    const from = req.query.from || "20231215";
-    const to = req.query.to || "20240115";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     console.log(typeof from, typeof to);
 
     const xml = `

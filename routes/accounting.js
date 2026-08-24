@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
-const { parseTallyImportResponse } = require("../helpers/tallyHelper");
+const { parseTallyImportResponse, getDefaultFinYearRange } = require("../helpers/tallyHelper");
 
 // ─── GET /groups ────────────────────────────────────────────
 router.get("/groups", async (req, res) => {
@@ -178,8 +178,9 @@ router.post("/ledgers", async (req, res) => {
 
 // ─── GET /vouchers ──────────────────────────────────────────
 router.get("/vouchers", async (req, res) => {
-  const from = req.query.from || "20230401";
-  const to = req.query.to || "20240430";
+  const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+  const from = req.query.from || defaultFrom;
+  const to = req.query.to || defaultTo;
   console.log(from, to);
 
   const xml = `

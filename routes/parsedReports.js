@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
+const { getDefaultFinYearRange } = require("../helpers/tallyHelper");
 
 // Helper to fetch and parse a Tally report with clean JSON output
 async function fetchReport(reportName, from, to) {
@@ -87,8 +88,9 @@ router.get("/reports/cash-flow", async (req, res) => {
 
 // ─── GET /reports/stock-summary ─────────────────────────────
 router.get("/reports/stock-summary", async (req, res) => {
-    const from = req.query.from || "20260401";
-    const to = req.query.to || "20260722";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
 
     // Custom XML to force Item-wise explosion of Stock Summary
     const xml = `
@@ -581,11 +583,7 @@ router.get("/reports/ledgers-summary-by-period", async (req, res) => {
         <TDLMESSAGE>
           <COLLECTION NAME="LedgerBalances">
             <TYPE>Ledger</TYPE>
-            <COMPUTE>PeriodOpBal: $OpeningBalance</COMPUTE>
-            <COMPUTE>PeriodClBal: $ClosingBalance</COMPUTE>
-            <COMPUTE>PeriodDebit: $Debit</COMPUTE>
-            <COMPUTE>PeriodCredit: $Credit</COMPUTE>
-            <FETCH>Name, PeriodOpBal, PeriodClBal, PeriodDebit, PeriodCredit</FETCH>
+            <FETCH>Name, OpeningBalance, ClosingBalance, Debit, Credit</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -604,16 +602,16 @@ router.get("/reports/ledgers-summary-by-period", async (req, res) => {
             const name = item?.$?.NAME || item?.NAME;
             if (!name) continue;
 
-            let opBal = item?.PERIODOPBAL?._ || item?.PERIODOPBAL || "0.00";
+            let opBal = item?.OPENINGBALANCE?._ || item?.OPENINGBALANCE || "0.00";
             if (typeof opBal === "object") opBal = opBal._ || "0.00";
 
-            let clBal = item?.PERIODCLBAL?._ || item?.PERIODCLBAL || "0.00";
+            let clBal = item?.CLOSINGBALANCE?._ || item?.CLOSINGBALANCE || "0.00";
             if (typeof clBal === "object") clBal = clBal._ || "0.00";
 
-            let debit = item?.PERIODDEBIT?._ || item?.PERIODDEBIT || "0.00";
+            let debit = item?.DEBIT?._ || item?.DEBIT || "0.00";
             if (typeof debit === "object") debit = debit._ || "0.00";
 
-            let credit = item?.PERIODCREDIT?._ || item?.PERIODCREDIT || "0.00";
+            let credit = item?.CREDIT?._ || item?.CREDIT || "0.00";
             if (typeof credit === "object") credit = credit._ || "0.00";
 
             summary.push({

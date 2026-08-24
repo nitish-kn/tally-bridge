@@ -1,11 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const { sendToTally } = require("../tallyClient");
+const { getDefaultFinYearRange } = require("../helpers/tallyHelper");
 
 // ─── GET /gst/gstr1 ─────────────────────────────────────────
 router.get("/gst/gstr1", async (req, res) => {
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -59,8 +61,9 @@ router.get("/gst/gstr1", async (req, res) => {
 
 // ─── GET /gst/gstr2 ─────────────────────────────────────────
 router.get("/gst/gstr2", async (req, res) => {
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -113,8 +116,9 @@ router.get("/gst/gstr2", async (req, res) => {
 
 // ─── GET /gst/gstr3b ────────────────────────────────────────
 router.get("/gst/gstr3b", async (req, res) => {
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -180,8 +184,9 @@ router.post("/gst/e-invoice", async (req, res) => {
     const { voucherNumber } = req.body;
     if (!voucherNumber) return res.status(400).json({ error: "voucherNumber is required" });
 
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -251,8 +256,9 @@ router.post("/gst/e-waybill", async (req, res) => {
     const { voucherNumber, transporterId, vehicleNumber, transportMode } = req.body;
     if (!voucherNumber) return res.status(400).json({ error: "voucherNumber is required" });
 
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     const xml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
