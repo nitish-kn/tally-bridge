@@ -142,13 +142,13 @@ router.get("/reports/stock-summary", async (req, res) => {
             const body = companyData?.ENVELOPE?.BODY || {};
             // Direct extraction from Tally's echoed static variables
             companyName = body?.IMPORTDATA?.REQUESTDESC?.STATICVARIABLES?.SVCURRENTCOMPANY;
-            
+
             // Fallback to checking the active company list details
             if (!companyName || typeof companyName !== "string") {
                 const requestData = body?.IMPORTDATA?.REQUESTDATA || {};
                 let messages = requestData.TALLYMESSAGE || [];
                 if (!Array.isArray(messages)) messages = [messages];
-                
+
                 for (const msg of messages) {
                     if (msg.COMPANY) {
                         const list = msg.COMPANY["REMOTECMPINFO.LIST"];
@@ -241,11 +241,11 @@ router.get("/reports/stock-summary-by-godown", async (req, res) => {
     </EXPORTDATA>
   </BODY>
 </ENVELOPE>`;
-        
+
         const godownsData = await sendToTally(godownsXml);
         let messages = godownsData?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || [];
         if (!Array.isArray(messages)) messages = [messages];
-        
+
         const godowns = [];
         for (const msg of messages) {
             if (!msg.GODOWN) continue;
@@ -257,7 +257,7 @@ router.get("/reports/stock-summary-by-godown", async (req, res) => {
         // 2. Build TDL collection request with computed godown values
         let computeBlocks = "";
         let fetchFields = "Name, ClosingBalance";
-        
+
         godowns.forEach((gName, index) => {
             const tag = `G_${index}`;
             computeBlocks += `            <COMPUTE>${tag} : $$GodownItemValue:"${gName}":$Name:$ClosingBalance</COMPUTE>\n`;
@@ -297,7 +297,7 @@ ${computeBlocks}            <FETCH>${fetchFields}</FETCH>
         const summary = [];
         for (const item of stockItemsList) {
             if (!item) continue;
-            
+
             const name = item?.$?.NAME || item?.NAME;
             if (!name) continue;
 
@@ -309,7 +309,7 @@ ${computeBlocks}            <FETCH>${fetchFields}</FETCH>
                     totalQty = item.CLOSINGBALANCE;
                 }
             }
-            
+
             const breakdown = {};
             godowns.forEach((gName, index) => {
                 const tag = `G_${index}`;
@@ -340,8 +340,18 @@ ${computeBlocks}            <FETCH>${fetchFields}</FETCH>
 
 // ─── GET /reports/day-book ──────────────────────────────────
 router.get("/reports/day-book", async (req, res) => {
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
+    // Dynamic default date range (current Indian Financial Year)
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // 1-indexed
+    const currentDay = today.getDate();
+
+    let finYearStartYear = today.getMonth() >= 3 ? currentYear : currentYear - 1; // April is index 3
+    const defaultFrom = `${finYearStartYear}0401`;
+    const defaultTo = `${currentYear}${String(currentMonth).padStart(2, "0")}${String(currentDay).padStart(2, "0")}`;
+
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
     try {
         const data = await fetchReport("Day Book", from, to);
         let messages = data?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || [];
@@ -392,9 +402,22 @@ router.get("/reports/outstanding/payables", async (req, res) => {
 // ─── GET /reports/ledger/:name ──────────────────────────────
 router.get("/reports/ledger/:name", async (req, res) => {
     const ledgerName = decodeURIComponent(req.params.name);
-    const from = req.query.from || "20230401";
-    const to = req.query.to || "20250331";
-    const xml = `
+    
+    // Dynamic default date range (current Indian Financial Year)
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // 1-indexed
+    const currentDay = today.getDate();
+
+    let finYearStartYear = today.getMonth() >= 3 ? currentYear : currentYear - 1; // April is index 3
+    const defaultFrom = `${finYearStartYear}0401`;
+    const defaultTo = `${currentYear}${String(currentMonth).padStart(2, "0")}${String(currentDay).padStart(2, "0")}`;
+
+    const from = req.query.from || defaultFrom;
+    const to = req.query.to || defaultTo;
+
+    // 1. XML for ledger vouchers (transactions)
+    const vouchersXml = `
 <ENVELOPE>
   <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
   <BODY>
@@ -411,26 +434,206 @@ router.get("/reports/ledger/:name", async (req, res) => {
     </EXPORTDATA>
   </BODY>
 </ENVELOPE>`;
+
+    // 2. XML for period opening and closing balances
+    const balancesXml = `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>LedgerBalances</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE>${from}</SVFROMDATE>
+        <SVTODATE>${to}</SVTODATE>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="LedgerBalances">
+            <TYPE>Ledger</TYPE>
+            <FILTER>LedgerFilter</FILTER>
+            <COMPUTE>PeriodOpBal: $OpeningBalance</COMPUTE>
+            <COMPUTE>PeriodClBal: $ClosingBalance</COMPUTE>
+            <FETCH>Name, PeriodOpBal, PeriodClBal</FETCH>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="LedgerFilter">$Name = "${ledgerName}"</SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+
     try {
-        const data = await sendToTally(xml);
-        let messages = data?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || [];
-        if (!Array.isArray(messages)) messages = [messages];
+        // Run both queries in parallel
+        const [vouchersData, balancesData] = await Promise.all([
+            sendToTally(vouchersXml),
+            sendToTally(balancesXml).catch(err => {
+                console.error("Error fetching ledger balances:", err.message);
+                return null;
+            })
+        ]);
+
+        // Parse Vouchers
+        const envelope = vouchersData?.ENVELOPE || {};
+        let dates = envelope.DSPVCHDATE || [];
+        if (!Array.isArray(dates)) dates = [dates];
+
+        let accounts = envelope.DSPVCHLEDACCOUNT || [];
+        if (!Array.isArray(accounts)) accounts = [accounts];
+
+        let types = envelope.DSPVCHTYPE || [];
+        if (!Array.isArray(types)) types = [types];
+
+        let drAmts = envelope.DSPVCHDRAMT || [];
+        if (!Array.isArray(drAmts)) drAmts = [drAmts];
+
+        let crAmts = envelope.DSPVCHCRAMT || [];
+        if (!Array.isArray(crAmts)) crAmts = [crAmts];
 
         const transactions = [];
-        for (const msg of messages) {
-            if (!msg.VOUCHER) continue;
-            const v = msg.VOUCHER;
+        const length = dates.length;
+
+        let totalDebit = 0;
+        let totalCredit = 0;
+
+        for (let i = 0; i < length; i++) {
+            if (!dates[i]) continue;
+            
+            const dr = drAmts[i] ? String(drAmts[i]).trim() : null;
+            const cr = crAmts[i] ? String(crAmts[i]).trim() : null;
+
+            if (dr && !isNaN(Number(dr))) totalDebit += Math.abs(Number(dr));
+            if (cr && !isNaN(Number(cr))) totalCredit += Math.abs(Number(cr));
+
             transactions.push({
-                type: v.VOUCHERTYPENAME,
-                number: v.VOUCHERNUMBER,
-                date: v.DATE,
-                amount: v.AMOUNT || null,
-                narration: v.NARRATION || null
+                date: dates[i],
+                particulars: accounts[i] || null,
+                voucherType: types[i] || null,
+                debit: dr,
+                credit: cr
             });
         }
-        res.json({ ledger: ledgerName, count: transactions.length, transactions });
+
+        // Parse Balances
+        const ledgerObj = balancesData?.ENVELOPE?.BODY?.DATA?.COLLECTION?.LEDGER || {};
+        
+        let opBal = ledgerObj?.PERIODOPBAL?._ || ledgerObj?.PERIODOPBAL || "0.00";
+        if (typeof opBal === "object") opBal = opBal._ || "0.00";
+        opBal = String(opBal).trim();
+
+        let clBal = ledgerObj?.PERIODCLBAL?._ || ledgerObj?.PERIODCLBAL || "0.00";
+        if (typeof clBal === "object") clBal = clBal._ || "0.00";
+        clBal = String(clBal).trim();
+
+        res.json({
+            ledger: ledgerName,
+            from,
+            to,
+            openingBalance: opBal,
+            closingBalance: clBal,
+            currentTotalDebit: totalDebit.toFixed(2),
+            currentTotalCredit: totalCredit.toFixed(2),
+            count: transactions.length,
+            transactions
+        });
     } catch (err) {
         console.error("LEDGER REPORT ERROR:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── GET /reports/ledgers-summary-by-period ────────────────
+router.get("/reports/ledgers-summary-by-period", async (req, res) => {
+    try {
+        // Dynamic default date range (current Indian Financial Year)
+        const today = new Date();
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth() + 1; // 1-indexed
+        const currentDay = today.getDate();
+
+        let finYearStartYear = today.getMonth() >= 3 ? currentYear : currentYear - 1; // April is index 3
+        const defaultFrom = `${finYearStartYear}0401`;
+        const defaultTo = `${currentYear}${String(currentMonth).padStart(2, "0")}${String(currentDay).padStart(2, "0")}`;
+
+        const from = req.query.from || defaultFrom;
+        const to = req.query.to || defaultTo;
+
+        const xml = `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>LedgerBalances</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE>${from}</SVFROMDATE>
+        <SVTODATE>${to}</SVTODATE>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="LedgerBalances">
+            <TYPE>Ledger</TYPE>
+            <COMPUTE>PeriodOpBal: $OpeningBalance</COMPUTE>
+            <COMPUTE>PeriodClBal: $ClosingBalance</COMPUTE>
+            <COMPUTE>PeriodDebit: $Debit</COMPUTE>
+            <COMPUTE>PeriodCredit: $Credit</COMPUTE>
+            <FETCH>Name, PeriodOpBal, PeriodClBal, PeriodDebit, PeriodCredit</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+
+        const responseData = await sendToTally(xml);
+        const collectionData = responseData?.ENVELOPE?.BODY?.DATA?.COLLECTION?.LEDGER || [];
+        const ledgersList = Array.isArray(collectionData) ? collectionData : [collectionData];
+
+        const summary = [];
+        for (const item of ledgersList) {
+            if (!item) continue;
+            
+            const name = item?.$?.NAME || item?.NAME;
+            if (!name) continue;
+
+            let opBal = item?.PERIODOPBAL?._ || item?.PERIODOPBAL || "0.00";
+            if (typeof opBal === "object") opBal = opBal._ || "0.00";
+
+            let clBal = item?.PERIODCLBAL?._ || item?.PERIODCLBAL || "0.00";
+            if (typeof clBal === "object") clBal = clBal._ || "0.00";
+
+            let debit = item?.PERIODDEBIT?._ || item?.PERIODDEBIT || "0.00";
+            if (typeof debit === "object") debit = debit._ || "0.00";
+
+            let credit = item?.PERIODCREDIT?._ || item?.PERIODCREDIT || "0.00";
+            if (typeof credit === "object") credit = credit._ || "0.00";
+
+            summary.push({
+                name: String(name).trim(),
+                openingBalance: String(opBal).trim(),
+                closingBalance: String(clBal).trim(),
+                currentTotalDebit: String(debit).trim(),
+                currentTotalCredit: String(credit).trim()
+            });
+        }
+
+        res.json({
+            report: "All Ledgers Period Summary",
+            from,
+            to,
+            count: summary.length,
+            ledgers: summary
+        });
+    } catch (err) {
+        console.error("LEDGERS PERIOD SUMMARY ERROR:", err);
         res.status(500).json({ error: err.message });
     }
 });
