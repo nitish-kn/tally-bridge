@@ -225,6 +225,119 @@ router.get("/reports/stock-summary", async (req, res) => {
     }
 });
 
+// ─── GET /reports/stock-summary-by-godown ──────────────────
+router.get("/reports/stock-summary-by-godown", async (req, res) => {
+    try {
+        // 1. Fetch active godowns from Tally
+        const godownsXml = `
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>List of Accounts</REPORTNAME>
+        <STATICVARIABLES><ACCOUNTTYPE>Godowns</ACCOUNTTYPE></STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+        
+        const godownsData = await sendToTally(godownsXml);
+        let messages = godownsData?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || [];
+        if (!Array.isArray(messages)) messages = [messages];
+        
+        const godowns = [];
+        for (const msg of messages) {
+            if (!msg.GODOWN) continue;
+            const g = msg.GODOWN;
+            const name = g?.$?.NAME || g?.["LANGUAGENAME.LIST"]?.["NAME.LIST"]?.NAME;
+            if (name) godowns.push(name);
+        }
+
+        // 2. Build TDL collection request with computed godown values
+        let computeBlocks = "";
+        let fetchFields = "Name, ClosingBalance";
+        
+        godowns.forEach((gName, index) => {
+            const tag = `G_${index}`;
+            computeBlocks += `            <COMPUTE>${tag} : $$GodownItemValue:"${gName}":$Name:$ClosingBalance</COMPUTE>\n`;
+            fetchFields += `, ${tag}`;
+        });
+
+        const collectionXml = `
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>GodownWiseStock</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="GodownWiseStock">
+            <TYPE>StockItem</TYPE>
+${computeBlocks}            <FETCH>${fetchFields}</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+
+        // 3. Query Tally & parse the response
+        const responseData = await sendToTally(collectionXml);
+        const collectionData = responseData?.ENVELOPE?.BODY?.DATA?.COLLECTION?.STOCKITEM || [];
+        const stockItemsList = Array.isArray(collectionData) ? collectionData : [collectionData];
+
+        const summary = [];
+        for (const item of stockItemsList) {
+            if (!item) continue;
+            
+            const name = item?.$?.NAME || item?.NAME;
+            if (!name) continue;
+
+            let totalQty = "";
+            if (item.CLOSINGBALANCE) {
+                if (typeof item.CLOSINGBALANCE === "object") {
+                    totalQty = item.CLOSINGBALANCE._ || "";
+                } else {
+                    totalQty = item.CLOSINGBALANCE;
+                }
+            }
+            
+            const breakdown = {};
+            godowns.forEach((gName, index) => {
+                const tag = `G_${index}`;
+                let qty = item?.[tag.toUpperCase()] || "0";
+                if (qty && typeof qty === "object") {
+                    qty = qty._ || "0";
+                }
+                breakdown[gName] = String(qty).trim();
+            });
+
+            summary.push({
+                name: String(name).trim(),
+                totalQuantity: String(totalQty).trim(),
+                breakdown
+            });
+        }
+
+        res.json({
+            report: "Stock Summary (Godown Wise)",
+            count: summary.length,
+            items: summary
+        });
+    } catch (err) {
+        console.error("STOCK SUMMARY GODOWN-WISE ERROR:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── GET /reports/day-book ──────────────────────────────────
 router.get("/reports/day-book", async (req, res) => {
     const from = req.query.from || "20230401";
