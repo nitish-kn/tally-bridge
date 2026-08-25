@@ -551,77 +551,126 @@ router.get("/reports/ledger/:name", async (req, res) => {
 // ─── GET /reports/ledgers-summary-by-period ────────────────
 router.get("/reports/ledgers-summary-by-period", async (req, res) => {
     try {
-        // Dynamic default date range (current Indian Financial Year)
-        const today = new Date();
-        const currentYear = today.getFullYear();
-        const currentMonth = today.getMonth() + 1; // 1-indexed
-        const currentDay = today.getDate();
-
-        let finYearStartYear = today.getMonth() >= 3 ? currentYear : currentYear - 1; // April is index 3
-        const defaultFrom = `${finYearStartYear}0401`;
-        const defaultTo = `${currentYear}${String(currentMonth).padStart(2, "0")}${String(currentDay).padStart(2, "0")}`;
-
+        const { from: defaultFrom, to: defaultTo } = getDefaultFinYearRange();
         const from = req.query.from || defaultFrom;
         const to = req.query.to || defaultTo;
 
-        const xml = `
+        // 1. Fetch ledger names from List of Accounts (to establish the full list of ledgers)
+        const ledgersXml = `
 <ENVELOPE>
-  <HEADER>
-    <VERSION>1</VERSION>
-    <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Collection</TYPE>
-    <ID>LedgerBalances</ID>
-  </HEADER>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
   <BODY>
-    <DESC>
-      <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE>${from}</SVFROMDATE>
-        <SVTODATE>${to}</SVTODATE>
-      </STATICVARIABLES>
-      <TDL>
-        <TDLMESSAGE>
-          <COLLECTION NAME="LedgerBalances">
-            <TYPE>Ledger</TYPE>
-            <FETCH>Name, OpeningBalance, ClosingBalance, Debit, Credit</FETCH>
-          </COLLECTION>
-        </TDLMESSAGE>
-      </TDL>
-    </DESC>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>List of Accounts</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
   </BODY>
 </ENVELOPE>`;
 
-        const responseData = await sendToTally(xml);
-        const collectionData = responseData?.ENVELOPE?.BODY?.DATA?.COLLECTION?.LEDGER || [];
-        const ledgersList = Array.isArray(collectionData) ? collectionData : [collectionData];
+        // 2. Fetch detailed transaction/balance data from Trial Balance
+        const tbXml = `
+<ENVELOPE>
+  <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+  <BODY>
+    <EXPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Trial Balance</REPORTNAME>
+        <STATICVARIABLES>
+          <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+          <SVFROMDATE>${from}</SVFROMDATE>
+          <SVTODATE>${to}</SVTODATE>
+          <EXPLODEFLAG>Yes</EXPLODEFLAG>
+          <EXPLODEALLLEVELS>Yes</EXPLODEALLLEVELS>
+          <DSPSHOWTRANS>Yes</DSPSHOWTRANS>
+          <DSPSHOWOPENING>Yes</DSPSHOWOPENING>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+    </EXPORTDATA>
+  </BODY>
+</ENVELOPE>`;
 
-        const summary = [];
-        for (const item of ledgersList) {
-            if (!item) continue;
-            
-            const name = item?.$?.NAME || item?.NAME;
+        const [ledgersData, tbData] = await Promise.all([
+            sendToTally(ledgersXml),
+            sendToTally(tbXml)
+        ]);
+
+        // Parse Ledger Names and initialize the baseline map
+        let messages = ledgersData?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || ledgersData?.ENVELOPE?.BODY?.TALLYMESSAGE || [];
+        if (!Array.isArray(messages)) messages = [messages];
+
+        const summaryMap = new Map();
+        for (const msg of messages) {
+            if (msg.LEDGER) {
+                const name = msg.LEDGER?.$?.NAME || msg.LEDGER?.["LANGUAGENAME.LIST"]?.["NAME.LIST"]?.NAME || msg.LEDGER?.NAME;
+                if (name) {
+                    const trimmedName = String(name).trim();
+                    summaryMap.set(trimmedName, {
+                        name: trimmedName,
+                        openingBalance: "0.00",
+                        closingBalance: "0.00",
+                        currentTotalDebit: "0.00",
+                        currentTotalCredit: "0.00"
+                    });
+                }
+            }
+        }
+
+        // Parse Trial Balance
+        const envelope = tbData?.ENVELOPE || {};
+        let names = envelope.DSPACCNAME || [];
+        if (!Array.isArray(names)) names = [names];
+
+        let info = envelope.DSPACCINFO || [];
+        if (!Array.isArray(info)) info = [info];
+
+        const length = Math.max(names.length, info.length);
+
+        for (let i = 0; i < length; i++) {
+            const nameObj = names[i];
+            const infoObj = info[i] || {};
+
+            const name = nameObj?.DSPDISPNAME || nameObj || null;
             if (!name) continue;
 
-            let opBal = item?.OPENINGBALANCE?._ || item?.OPENINGBALANCE || "0.00";
-            if (typeof opBal === "object") opBal = opBal._ || "0.00";
+            const trimmedName = String(name).trim();
 
-            let clBal = item?.CLOSINGBALANCE?._ || item?.CLOSINGBALANCE || "0.00";
-            if (typeof clBal === "object") clBal = clBal._ || "0.00";
+            // Only update if this account name is in our list of ledgers
+            if (summaryMap.has(trimmedName)) {
+                // Parse Opening Balance
+                let opAmt = infoObj.DSPOPAMT?.DSPOPAMTA || "0.00";
+                if (typeof opAmt === "object") opAmt = opAmt._ || "0.00";
 
-            let debit = item?.DEBIT?._ || item?.DEBIT || "0.00";
-            if (typeof debit === "object") debit = debit._ || "0.00";
+                // Parse Debit
+                let drAmt = infoObj.DSPDRAMT?.DSPDRAMTA || "0.00";
+                if (typeof drAmt === "object") drAmt = drAmt._ || "0.00";
 
-            let credit = item?.CREDIT?._ || item?.CREDIT || "0.00";
-            if (typeof credit === "object") credit = credit._ || "0.00";
+                // Parse Credit
+                let crAmt = infoObj.DSPCRAMT?.DSPCRAMTA || "0.00";
+                if (typeof crAmt === "object") crAmt = crAmt._ || "0.00";
 
-            summary.push({
-                name: String(name).trim(),
-                openingBalance: String(opBal).trim(),
-                closingBalance: String(clBal).trim(),
-                currentTotalDebit: String(debit).trim(),
-                currentTotalCredit: String(credit).trim()
-            });
+                // Parse Closing Balance
+                let clAmt = infoObj.DSPCLAMT?.DSPCLAMTA || "0.00";
+                if (typeof clAmt === "object") clAmt = clAmt._ || "0.00";
+
+                // Clean Tally's potential minus sign on Debit/Credit transaction amounts
+                const cleanDr = drAmt ? Math.abs(Number(drAmt)).toFixed(2) : "0.00";
+                const cleanCr = crAmt ? Math.abs(Number(crAmt)).toFixed(2) : "0.00";
+
+                summaryMap.set(trimmedName, {
+                    name: trimmedName,
+                    openingBalance: String(opAmt).trim() || "0.00",
+                    closingBalance: String(clAmt).trim() || "0.00",
+                    currentTotalDebit: cleanDr,
+                    currentTotalCredit: cleanCr
+                });
+            }
         }
+
+        const summary = Array.from(summaryMap.values());
 
         res.json({
             report: "All Ledgers Period Summary",
